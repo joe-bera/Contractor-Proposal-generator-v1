@@ -6,6 +6,7 @@ import { ProposalStatus } from '@prisma/client';
 import { authMiddleware, optionalAuthMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import prisma from '../db/client.js';
 import { createError } from '../middleware/errorHandler.js';
+import { proposalService } from '../services/proposalService.js';
 
 const router = Router();
 
@@ -124,6 +125,87 @@ router.post(
     res.status(201).json({
       success: true,
       data: proposal,
+    });
+  })
+);
+
+// AI Generate proposal from estimate
+const aiGenerateSchema = z.object({
+  estimateId: z.string().min(1, 'Estimate ID is required'),
+  tone: z.enum(['professional', 'friendly', 'premium', 'value']).default('professional'),
+  targetMargin: z.number().min(0).max(100).default(20),
+  customInstructions: z.string().optional(),
+});
+
+router.post(
+  '/:projectId/proposals/ai-generate',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const { projectId } = req.params;
+    const validated = aiGenerateSchema.parse(req.body);
+
+    // Verify project belongs to company
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+    });
+
+    if (!project || project.companyId !== req.companyId!) {
+      throw createError('Project not found', 404);
+    }
+
+    // Verify estimate exists and belongs to project
+    const estimate = await prisma.estimate.findUnique({
+      where: { id: validated.estimateId },
+    });
+
+    if (!estimate || estimate.projectId !== projectId) {
+      throw createError('Estimate not found', 404);
+    }
+
+    // Generate AI proposal
+    const aiOutput = await proposalService.generateProposal({
+      estimateId: validated.estimateId,
+      projectId,
+      companyId: req.companyId!,
+      tone: validated.tone,
+      targetMargin: validated.targetMargin,
+      customInstructions: validated.customInstructions,
+    });
+
+    // Save the proposal
+    const proposalId = await proposalService.saveProposal(
+      projectId,
+      req.companyId!,
+      req.userId!,
+      validated.estimateId,
+      aiOutput,
+      validated.tone
+    );
+
+    // Fetch the complete proposal
+    const proposal = await prisma.proposal.findUnique({
+      where: { id: proposalId },
+      include: {
+        project: {
+          select: {
+            name: true,
+            clientFirstName: true,
+            clientLastName: true,
+            clientEmail: true,
+          },
+        },
+        createdBy: {
+          select: { name: true, email: true },
+        },
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: proposal,
+      aiOutput: {
+        suggestedUpsells: aiOutput.suggestedUpsells,
+        followUpSequence: aiOutput.followUpSequence,
+      },
     });
   })
 );

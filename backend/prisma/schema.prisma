@@ -44,6 +44,7 @@ model Company {
   // Settings
   settings              Json     @default("{}")
   pricingConfig         Json     @default("{}")
+  yearsInBusiness       Int?
 
   users                 User[]
   leads                 Lead[]
@@ -383,6 +384,9 @@ model Estimate {
   // Line Items
   lineItems           EstimateLineItem[]
 
+  // Generated Proposals
+  proposals           Proposal[]
+
   project             Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId           String
 
@@ -501,9 +505,23 @@ model Proposal {
   aiGeneratedContent    Json?
   aiSuggestedUpsells    Json?
 
+  // Extended AI Proposal Fields
+  projectVision         String?        @db.Text
+  whyChooseUs           Json?
+  guarantee             String?        @db.Text
+  callToAction          String?
+  urgency               String?
+  suggestedUpsells      Json?
+  followUpSequence      Json?
+  milestones            Json?
+
   // URLs
   publicUrl             String?        @unique
   pdfUrl                String?
+
+  // Links
+  estimate              Estimate?      @relation(fields: [estimateId], references: [id])
+  estimateId            String?
 
   project               Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId             String
