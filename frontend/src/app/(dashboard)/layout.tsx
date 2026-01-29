@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   Phone,
+  Shield,
 } from "lucide-react";
 
 const navigation = [
@@ -23,6 +24,7 @@ const navigation = [
   { name: "Leads", href: "/leads", icon: Users },
   { name: "Projects", href: "/projects", icon: FolderKanban },
   { name: "Proposals", href: "/proposals", icon: FileText },
+  { name: "Compliance", href: "/compliance", icon: Shield },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

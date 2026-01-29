@@ -17,6 +17,7 @@ import webhooksRouter from './routes/webhooks.js';
 import companyRouter from './routes/company.js';
 import analyticsRouter from './routes/analytics.js';
 import exportRouter from './routes/export.js';
+import complianceRouter from './routes/compliance.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -57,6 +58,7 @@ app.use('/api/webhooks', webhooksRouter);
 app.use('/api/company', companyRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/export', exportRouter);
+app.use('/api/compliance', complianceRouter);
 
 // Public proposal routes (no auth required)
 app.use('/api/proposals', proposalsRouter);

@@ -1,6 +1,7 @@
 import prisma from '../db/client.js';
 import { ProjectStatus, ProjectType, Prisma } from '@prisma/client';
 import { createError } from '../middleware/errorHandler.js';
+import { complianceService } from './complianceService.js';
 
 export interface CreateProjectData {
   name: string;
@@ -109,11 +110,15 @@ class ProjectService {
         changeOrders: {
           orderBy: { createdAt: 'desc' },
         },
+        complianceRecords: {
+          orderBy: { deadlineDate: 'asc' },
+        },
         _count: {
           select: {
             timeEntries: true,
             materialPurchases: true,
             invoices: true,
+            complianceRecords: true,
           },
         },
       },
@@ -184,9 +189,11 @@ class ProjectService {
 
   async update(id: string, companyId: string, data: UpdateProjectData) {
     // Verify project belongs to company
-    await this.findById(id, companyId);
+    const existingProject = await this.findById(id, companyId);
+    const oldStatus = existingProject.status;
+    const newStatus = data.status;
 
-    return prisma.project.update({
+    const updatedProject = await prisma.project.update({
       where: { id },
       data: {
         ...(data.name !== undefined && { name: data.name }),
@@ -216,6 +223,32 @@ class ProjectService {
         },
       },
     });
+
+    // Auto-initialize compliance when project starts (status changes to IN_PROGRESS)
+    if (newStatus === ProjectStatus.IN_PROGRESS && oldStatus !== ProjectStatus.IN_PROGRESS) {
+      try {
+        const workStartDate = data.actualStartDate || new Date();
+        await complianceService.initializeProjectCompliance(id, workStartDate);
+        console.log(`Compliance initialized for project ${id}`);
+      } catch (error) {
+        console.error(`Failed to initialize compliance for project ${id}:`, error);
+        // Don't fail the update if compliance initialization fails
+      }
+    }
+
+    // Auto-create lien deadline when project completes
+    if (newStatus === ProjectStatus.COMPLETED && oldStatus !== ProjectStatus.COMPLETED) {
+      try {
+        const completionDate = data.actualEndDate || new Date();
+        await complianceService.markProjectComplete(id, completionDate);
+        console.log(`Lien deadline created for project ${id}`);
+      } catch (error) {
+        console.error(`Failed to create lien deadline for project ${id}:`, error);
+        // Don't fail the update if compliance creation fails
+      }
+    }
+
+    return updatedProject;
   }
 
   async delete(id: string, companyId: string) {

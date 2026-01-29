@@ -271,6 +271,7 @@ model Project {
   timeEntries           TimeEntry[]
   materialPurchases     MaterialPurchase[]
   invoices              Invoice[]
+  complianceRecords     ComplianceRecord[]
 
   // GoHighLevel sync
   ghlOpportunityId      String?
@@ -800,4 +801,71 @@ model MaterialPricing {
 
   @@index([companyId])
   @@index([category])
+}
+
+// ============ COMPLIANCE ============
+
+model ComplianceRecord {
+  id                String               @id @default(cuid())
+  type              ComplianceType
+  status            ComplianceStatus     @default(PENDING)
+
+  // Deadlines
+  deadlineDate      DateTime
+  warningDate       DateTime?            // 7 days before deadline
+  completedDate     DateTime?
+
+  // State-specific data
+  state             String
+  propertyType      PropertyClassification
+
+  // Document tracking
+  documentUrl       String?
+  documentContent   Json?
+  sentVia           String?              // email, certified_mail, both
+  sentDate          DateTime?
+  trackingNumber    String?
+  deliveryConfirmed Boolean              @default(false)
+  deliveryDate      DateTime?
+
+  // Related
+  project           Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId         String
+
+  notes             String?              @db.Text
+
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([projectId])
+  @@index([deadlineDate])
+  @@index([status])
+  @@index([type])
+}
+
+enum ComplianceType {
+  PRELIMINARY_NOTICE
+  MECHANICS_LIEN
+  NOTICE_OF_COMPLETION
+  CONDITIONAL_LIEN_WAIVER
+  UNCONDITIONAL_LIEN_WAIVER
+  STOP_NOTICE
+}
+
+enum ComplianceStatus {
+  PENDING
+  WARNING
+  SENT
+  DELIVERED
+  FILED
+  EXPIRED
+  WAIVED
+  NOT_REQUIRED
+}
+
+enum PropertyClassification {
+  RESIDENTIAL_OWNER_OCCUPIED
+  RESIDENTIAL_NON_OWNER
+  COMMERCIAL
+  PUBLIC_WORKS
 }
