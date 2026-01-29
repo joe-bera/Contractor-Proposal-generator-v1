@@ -1,0 +1,871 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ MULTI-TENANT ============
+
+model Company {
+  id                    String   @id @default(cuid())
+  name                  String
+  slug                  String   @unique
+  logoUrl               String?
+  primaryColor          String   @default("#1e40af")
+  secondaryColor        String   @default("#3b82f6")
+
+  // Business Info
+  phone                 String?
+  email                 String?
+  website               String?
+  address               String?
+  city                  String?
+  state                 String?
+  zip                   String?
+  licenseNumber         String?
+  insuranceInfo         String?
+
+  // Branding
+  proposalHeaderHtml    String?  @db.Text
+  proposalFooterHtml    String?  @db.Text
+  emailSignature        String?  @db.Text
+
+  // Integrations
+  goHighLevelApiKey     String?
+  goHighLevelLocationId String?
+  stripeAccountId       String?
+  retellAgentId         String?
+
+  // Settings
+  settings              Json     @default("{}")
+  pricingConfig         Json     @default("{}")
+  yearsInBusiness       Int?
+
+  users                 User[]
+  leads                 Lead[]
+  projects              Project[]
+  proposals             Proposal[]
+  templates             Template[]
+  materialPricing       MaterialPricing[]
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([slug])
+}
+
+model User {
+  id          String   @id @default(cuid())
+  clerkId     String   @unique
+  email       String
+  name        String
+  phone       String?
+  role        UserRole @default(CONTRACTOR)
+  avatar      String?
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  companyId   String
+
+  leads       Lead[]
+  projects    Project[]
+  proposals   Proposal[]
+  timeEntries TimeEntry[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([clerkId])
+  @@index([companyId])
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  CONTRACTOR
+  ESTIMATOR
+  OFFICE_MANAGER
+  FIELD_WORKER
+}
+
+// ============ LEADS ============
+
+model Lead {
+  id                     String     @id @default(cuid())
+  status                 LeadStatus @default(NEW)
+  source                 LeadSource @default(PHONE)
+
+  // Contact Info
+  firstName              String
+  lastName               String
+  email                  String?
+  phone                  String
+  address                String?
+  city                   String?
+  state                  String?
+  zip                    String?
+
+  // Project Info
+  projectType            String?
+  projectDescription     String?    @db.Text
+  estimatedBudget        Float?
+  desiredTimeline        String?
+  urgency                String?    @default("normal")
+
+  // Voice AI Data
+  voiceCallId            String?
+  voiceTranscript        String?    @db.Text
+  voiceCallDuration      Int?
+  voiceQualificationData Json?
+
+  // Photos from initial contact
+  photos                 LeadPhoto[]
+
+  // Scheduling
+  appointmentDate        DateTime?
+  appointmentNotes       String?
+
+  // Assignment
+  assignedTo             User?      @relation(fields: [assignedToId], references: [id])
+  assignedToId           String?
+
+  company                Company    @relation(fields: [companyId], references: [id])
+  companyId              String
+
+  // Conversion
+  convertedToProject     Project?
+
+  // GoHighLevel sync
+  ghlContactId           String?
+  ghlOpportunityId       String?
+
+  notes                  LeadNote[]
+
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+  @@index([assignedToId])
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  APPOINTMENT_SCHEDULED
+  ESTIMATE_SENT
+  FOLLOW_UP
+  WON
+  LOST
+  UNQUALIFIED
+}
+
+enum LeadSource {
+  PHONE
+  WEBSITE
+  REFERRAL
+  GOOGLE
+  FACEBOOK
+  INSTAGRAM
+  YELP
+  HOMEADVISOR
+  ANGIES_LIST
+  NEXTDOOR
+  OTHER
+}
+
+model LeadPhoto {
+  id          String   @id @default(cuid())
+  url         String
+  filename    String
+  description String?
+
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId      String
+
+  createdAt   DateTime @default(now())
+
+  @@index([leadId])
+}
+
+model LeadNote {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId    String
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+}
+
+// ============ PROJECTS ============
+
+model Project {
+  id                    String        @id @default(cuid())
+  projectNumber         String?
+  status                ProjectStatus @default(ESTIMATE)
+
+  // Project Details
+  name                  String
+  description           String?       @db.Text
+  projectType           ProjectType
+
+  // Location
+  address               String
+  city                  String
+  state                 String
+  zip                   String
+
+  // Client Info
+  clientFirstName       String
+  clientLastName        String
+  clientEmail           String?
+  clientPhone           String
+
+  // Timeline
+  estimatedStartDate    DateTime?
+  estimatedEndDate      DateTime?
+  actualStartDate       DateTime?
+  actualEndDate         DateTime?
+
+  // Financial Summary (calculated)
+  estimatedMaterialCost Float         @default(0)
+  estimatedLaborCost    Float         @default(0)
+  estimatedTotalCost    Float         @default(0)
+  estimatedProfit       Float         @default(0)
+  estimatedMargin       Float         @default(0)
+
+  actualMaterialCost    Float         @default(0)
+  actualLaborCost       Float         @default(0)
+  actualTotalCost       Float         @default(0)
+  actualProfit          Float         @default(0)
+  actualMargin          Float         @default(0)
+
+  // Contract Value
+  contractValue         Float         @default(0)
+  depositAmount         Float         @default(0)
+  depositPaid           Boolean       @default(false)
+
+  // Relationships
+  company               Company       @relation(fields: [companyId], references: [id])
+  companyId             String
+
+  assignedTo            User          @relation(fields: [assignedToId], references: [id])
+  assignedToId          String
+
+  lead                  Lead?         @relation(fields: [leadId], references: [id])
+  leadId                String?       @unique
+
+  // Related Data
+  estimates             Estimate[]
+  proposals             Proposal[]
+  photos                ProjectPhoto[]
+  lineItems             LineItem[]
+  changeOrders          ChangeOrder[]
+  timeEntries           TimeEntry[]
+  materialPurchases     MaterialPurchase[]
+  invoices              Invoice[]
+  complianceRecords     ComplianceRecord[]
+
+  // GoHighLevel sync
+  ghlOpportunityId      String?
+
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([companyId])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([projectType])
+}
+
+enum ProjectStatus {
+  ESTIMATE
+  PROPOSAL_SENT
+  PROPOSAL_VIEWED
+  NEGOTIATING
+  ACCEPTED
+  DEPOSIT_RECEIVED
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  INVOICED
+  PAID
+  CANCELLED
+}
+
+enum ProjectType {
+  // Residential
+  KITCHEN_REMODEL
+  BATHROOM_REMODEL
+  WHOLE_HOME_REMODEL
+  ADDITION
+  DECK_PATIO
+  ROOFING
+  SIDING
+  WINDOWS_DOORS
+  FLOORING
+  PAINTING_INTERIOR
+  PAINTING_EXTERIOR
+  LANDSCAPING
+  HARDSCAPING
+  FENCE
+  GARAGE
+  BASEMENT_FINISH
+  // Commercial
+  COMMERCIAL_TENANT_IMPROVEMENT
+  COMMERCIAL_BUILDOUT
+  COMMERCIAL_RENOVATION
+  COMMERCIAL_REPAIR
+  // Trade Specific
+  HVAC_INSTALL
+  HVAC_REPAIR
+  PLUMBING_NEW
+  PLUMBING_REPAIR
+  ELECTRICAL_NEW
+  ELECTRICAL_REPAIR
+  // Other
+  HANDYMAN
+  CUSTOM
+  OTHER
+}
+
+model ProjectPhoto {
+  id          String   @id @default(cuid())
+  url         String
+  filename    String
+  category    String?
+  description String?
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// ============ ESTIMATES ============
+
+model Estimate {
+  id                  String         @id @default(cuid())
+  version             Int            @default(1)
+  status              EstimateStatus @default(DRAFT)
+
+  // Estimate Details
+  name                String?
+  description         String?        @db.Text
+
+  // AI Analysis Data
+  aiAnalysisInput     Json?
+  aiAnalysisOutput    Json?
+  aiConfidenceScore   Float?
+
+  // Calculated Totals
+  materialCost        Float          @default(0)
+  laborHours          Float          @default(0)
+  laborCost           Float          @default(0)
+  equipmentCost       Float          @default(0)
+  overhead            Float          @default(0)
+  profit              Float          @default(0)
+  totalCost           Float          @default(0)
+
+  // Markup Settings
+  materialMarkup      Float          @default(0)
+  laborRate           Float          @default(0)
+  overheadPercent     Float          @default(0)
+  profitMarginPercent Float          @default(0)
+
+  // Line Items
+  lineItems           EstimateLineItem[]
+
+  // Generated Proposals
+  proposals           Proposal[]
+
+  project             Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId           String
+
+  // Learning Loop Data
+  wasAccurate         Boolean?
+  accuracyNotes       String?
+  variancePercent     Float?
+
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+}
+
+enum EstimateStatus {
+  DRAFT
+  FINAL
+  CONVERTED_TO_PROPOSAL
+}
+
+model EstimateLineItem {
+  id               String   @id @default(cuid())
+
+  category         String
+  description      String
+
+  // Quantity
+  quantity         Float    @default(1)
+  unit             String   @default("each")
+
+  // Pricing
+  unitCost         Float    @default(0)
+  totalCost        Float    @default(0)
+
+  // Labor specific
+  laborHours       Float?
+  laborRate        Float?
+
+  // Material specific
+  materialId       String?
+  supplierName     String?
+
+  // Subcontractor specific
+  subcontractorName String?
+
+  estimate         Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  estimateId       String
+
+  sortOrder        Int      @default(0)
+
+  @@index([estimateId])
+}
+
+// ============ PROPOSALS ============
+
+model Proposal {
+  id                    String         @id @default(cuid())
+  version               Int            @default(1)
+  status                ProposalStatus @default(DRAFT)
+
+  // Proposal Details
+  title                 String
+  introduction          String?        @db.Text
+  scopeOfWork           String?        @db.Text
+  exclusions            String?        @db.Text
+  termsAndConditions    String?        @db.Text
+
+  // Tone/Style
+  tone                  String         @default("professional")
+
+  // Good-Better-Best Pricing
+  goodTierName          String         @default("Standard")
+  goodTierDescription   String?        @db.Text
+  goodTierPrice         Float          @default(0)
+  goodTierItems         Json?
+
+  betterTierName        String         @default("Enhanced")
+  betterTierDescription String?        @db.Text
+  betterTierPrice       Float          @default(0)
+  betterTierItems       Json?
+
+  bestTierName          String         @default("Premium")
+  bestTierDescription   String?        @db.Text
+  bestTierPrice         Float          @default(0)
+  bestTierItems         Json?
+
+  // Selected Tier
+  selectedTier          String?
+
+  // Timeline
+  estimatedDuration     String?
+  proposedStartDate     DateTime?
+
+  // Payment Terms
+  depositPercent        Float          @default(50)
+  paymentSchedule       Json?
+
+  // Tracking
+  viewCount             Int            @default(0)
+  totalViewTime         Int            @default(0)
+  lastViewedAt          DateTime?
+
+  // Signature
+  signedAt              DateTime?
+  signatureData         String?        @db.Text
+  signerName            String?
+  signerEmail           String?
+  signerIp              String?
+
+  // Deposit
+  depositPaidAt         DateTime?
+  stripePaymentIntentId String?
+
+  // AI Data
+  aiGeneratedContent    Json?
+  aiSuggestedUpsells    Json?
+
+  // Extended AI Proposal Fields
+  projectVision         String?        @db.Text
+  whyChooseUs           Json?
+  guarantee             String?        @db.Text
+  callToAction          String?
+  urgency               String?
+  suggestedUpsells      Json?
+  followUpSequence      Json?
+  milestones            Json?
+
+  // URLs
+  publicUrl             String?        @unique
+  pdfUrl                String?
+
+  // Links
+  estimate              Estimate?      @relation(fields: [estimateId], references: [id])
+  estimateId            String?
+
+  project               Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId             String
+
+  createdBy             User           @relation(fields: [createdById], references: [id])
+  createdById           String
+
+  company               Company        @relation(fields: [companyId], references: [id])
+  companyId             String
+
+  // Follow-up tracking
+  followUps             ProposalFollowUp[]
+
+  // Win/Loss Analysis
+  outcome               ProposalOutcome?
+  lostReason            String?
+  competitorInfo        String?
+  feedbackNotes         String?        @db.Text
+
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@index([projectId])
+  @@index([companyId])
+  @@index([status])
+  @@index([publicUrl])
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  VIEWED
+  SIGNED
+  DEPOSIT_PAID
+  EXPIRED
+  DECLINED
+}
+
+enum ProposalOutcome {
+  WON
+  LOST_TO_COMPETITOR
+  LOST_TO_PRICE
+  LOST_NO_DECISION
+  LOST_TIMING
+  LOST_OTHER
+}
+
+model ProposalFollowUp {
+  id         String   @id @default(cuid())
+  type       String
+  sentAt     DateTime
+  content    String?  @db.Text
+  opened     Boolean  @default(false)
+  clicked    Boolean  @default(false)
+
+  proposal   Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  proposalId String
+
+  @@index([proposalId])
+}
+
+// ============ CHANGE ORDERS ============
+
+model ChangeOrder {
+  id                     String            @id @default(cuid())
+  changeOrderNumber      Int
+  status                 ChangeOrderStatus @default(DRAFT)
+
+  // Details
+  title                  String
+  description            String            @db.Text
+  reason                 String?
+
+  // Pricing
+  additionalMaterialCost Float             @default(0)
+  additionalLaborCost    Float             @default(0)
+  totalAdditionalCost    Float             @default(0)
+
+  // Line Items
+  lineItems              ChangeOrderLineItem[]
+
+  // Approval
+  approvedAt             DateTime?
+  approvedBy             String?
+  signatureData          String?           @db.Text
+
+  project                Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId              String
+
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  @@index([projectId])
+}
+
+enum ChangeOrderStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  DECLINED
+  INVOICED
+}
+
+model ChangeOrderLineItem {
+  id            String      @id @default(cuid())
+  description   String
+  quantity      Float       @default(1)
+  unit          String      @default("each")
+  unitCost      Float       @default(0)
+  totalCost     Float       @default(0)
+
+  changeOrder   ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  changeOrderId String
+
+  @@index([changeOrderId])
+}
+
+// ============ JOB COSTING ============
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  date        DateTime
+  hours       Float
+  description String?
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+
+  hourlyRate  Float    @default(0)
+  totalCost   Float    @default(0)
+
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([date])
+}
+
+model MaterialPurchase {
+  id          String   @id @default(cuid())
+  date        DateTime
+
+  supplier    String
+  description String
+  receiptUrl  String?
+
+  amount      Float
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+}
+
+model LineItem {
+  id            String  @id @default(cuid())
+  description   String
+  category      String
+
+  estimatedCost Float   @default(0)
+  actualCost    Float   @default(0)
+  variance      Float   @default(0)
+
+  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId     String
+
+  @@index([projectId])
+}
+
+// ============ INVOICING ============
+
+model Invoice {
+  id                    String        @id @default(cuid())
+  invoiceNumber         String
+  status                InvoiceStatus @default(DRAFT)
+
+  // Amounts
+  subtotal              Float         @default(0)
+  tax                   Float         @default(0)
+  total                 Float         @default(0)
+  amountPaid            Float         @default(0)
+  balance               Float         @default(0)
+
+  // Details
+  lineItems             Json
+  notes                 String?
+
+  // Payment
+  dueDate               DateTime
+  paidAt                DateTime?
+  stripePaymentIntentId String?
+
+  // URLs
+  pdfUrl                String?
+  publicUrl             String?       @unique
+
+  project               Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId             String
+
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// ============ TEMPLATES ============
+
+model Template {
+  id          String       @id @default(cuid())
+  type        TemplateType
+  name        String
+  description String?
+
+  // Content
+  content     Json
+
+  // Usage tracking
+  usageCount  Int          @default(0)
+
+  company     Company      @relation(fields: [companyId], references: [id])
+  companyId   String
+
+  isDefault   Boolean      @default(false)
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([companyId])
+  @@index([type])
+}
+
+enum TemplateType {
+  PROPOSAL
+  ESTIMATE
+  SCOPE_OF_WORK
+  TERMS_AND_CONDITIONS
+  EMAIL
+  SMS
+}
+
+// ============ MATERIAL PRICING ============
+
+model MaterialPricing {
+  id          String   @id @default(cuid())
+
+  category    String
+  name        String
+  description String?
+
+  unit        String
+  unitPrice   Float
+
+  supplier    String?
+  sku         String?
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  companyId   String
+
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([category])
+}
+
+// ============ COMPLIANCE ============
+
+model ComplianceRecord {
+  id                String               @id @default(cuid())
+  type              ComplianceType
+  status            ComplianceStatus     @default(PENDING)
+
+  // Deadlines
+  deadlineDate      DateTime
+  warningDate       DateTime?            // 7 days before deadline
+  completedDate     DateTime?
+
+  // State-specific data
+  state             String
+  propertyType      PropertyClassification
+
+  // Document tracking
+  documentUrl       String?
+  documentContent   Json?
+  sentVia           String?              // email, certified_mail, both
+  sentDate          DateTime?
+  trackingNumber    String?
+  deliveryConfirmed Boolean              @default(false)
+  deliveryDate      DateTime?
+
+  // Related
+  project           Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId         String
+
+  notes             String?              @db.Text
+
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([projectId])
+  @@index([deadlineDate])
+  @@index([status])
+  @@index([type])
+}
+
+enum ComplianceType {
+  PRELIMINARY_NOTICE
+  MECHANICS_LIEN
+  NOTICE_OF_COMPLETION
+  CONDITIONAL_LIEN_WAIVER
+  UNCONDITIONAL_LIEN_WAIVER
+  STOP_NOTICE
+}
+
+enum ComplianceStatus {
+  PENDING
+  WARNING
+  SENT
+  DELIVERED
+  FILED
+  EXPIRED
+  WAIVED
+  NOT_REQUIRED
+}
+
+enum PropertyClassification {
+  RESIDENTIAL_OWNER_OCCUPIED
+  RESIDENTIAL_NON_OWNER
+  COMMERCIAL
+  PUBLIC_WORKS
+}
