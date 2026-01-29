@@ -5,6 +5,7 @@ import { EstimateStatus } from '@prisma/client';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import prisma from '../db/client.js';
 import { createError } from '../middleware/errorHandler.js';
+import { aiEstimatingService } from '../services/aiEstimatingService.js';
 
 const router = Router();
 
@@ -135,18 +136,47 @@ router.post(
       throw createError('Project not found', 404);
     }
 
-    // Get company pricing config
-    const company = await prisma.company.findUnique({
-      where: { id: req.companyId! },
-      select: { pricingConfig: true },
+    // Generate AI estimate
+    const aiOutput = await aiEstimatingService.generateEstimate({
+      projectId,
+      companyId: req.companyId!,
+      photos: validated.photos,
+      measurements: validated.measurements,
+      scopeDescription: validated.scopeDescription,
+      projectType: validated.projectType,
+      qualityTier: validated.qualityTier,
     });
 
-    // TODO: Implement AI estimation service
-    // For now, return a placeholder response
-    res.status(501).json({
-      success: false,
-      error: 'AI estimation feature coming soon',
-      message: 'Please create estimates manually for now',
+    // Save the estimate to database
+    const estimateId = await aiEstimatingService.saveEstimate(projectId, aiOutput, {
+      projectId,
+      companyId: req.companyId!,
+      photos: validated.photos,
+      measurements: validated.measurements,
+      scopeDescription: validated.scopeDescription,
+      projectType: validated.projectType,
+      qualityTier: validated.qualityTier,
+    });
+
+    // Fetch the saved estimate with line items
+    const estimate = await prisma.estimate.findUnique({
+      where: { id: estimateId },
+      include: {
+        lineItems: {
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: estimate,
+      aiAnalysis: {
+        summary: aiOutput.projectSummary,
+        suggestedTiers: aiOutput.suggestedGoodBetterBest,
+        warnings: aiOutput.warnings,
+        questions: aiOutput.questionsForContractor,
+      },
     });
   })
 );
